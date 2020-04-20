@@ -75,16 +75,19 @@ def main(_):
     generator, rnnlm, style_discriminator, semantic_discriminator, rollout, vocab, tsf_vocab_inv = \
                pretrain.create_model(sess, save_folder, FLAGS, embed_fn)
     saver = tf.train.Saver(tf.all_variables())
-
+    if not FLAGS.pretrained_model_path is None:
+        pretrained_model_folder = FLAGS.pretrained_model_path
+        model_folder =  pretrained_model_folder #TODO change this shit
     # create pretrained_model folder
-    pretrained_model_folder = "../pretrained_model/" + FLAGS.data_type + "/"
-    if not os.path.exists(pretrained_model_folder):
-        os.mkdir(pretrained_model_folder)
+    else :
+        pretrained_model_folder = "../pretrained_model/" + FLAGS.data_type + "/"
+        if not os.path.exists(pretrained_model_folder):
+            os.mkdir(pretrained_model_folder)
         
     # create model folder
-    model_folder = "../model/" + FLAGS.data_type + "/"
-    if not os.path.exists(model_folder):
-        os.mkdir(model_folder)
+        model_folder = "../model/" + FLAGS.data_type + "/"
+        if not os.path.exists(model_folder):
+            os.mkdir(model_folder)
     
 
     # load data
