@@ -105,7 +105,7 @@ def main(_):
     
     
 #    PRETRAINED_MODEL = pretrained_model_folder + FLAGS.pretrained_model_path
-    PRETRAINED_MODEL = pretrained_model_folder + FLAGS.pretrained_model_path
+    PRETRAINED_MODEL = FLAGS.pretrained_model_path
 
     if (FLAGS.use_pretrained_model):
         saver.restore(sess, PRETRAINED_MODEL)
