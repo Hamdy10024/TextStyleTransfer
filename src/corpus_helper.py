@@ -195,7 +195,7 @@ def saveTuneEmbed(save_folder, tune_vec_path):
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data_type", type=str, default="gyafc_family") #gyafc_family, yelp
+    parser.add_argument("--data_type", type=str, default="yelp") #gyafc_family, yelp
     parser.add_argument("--tokenize", default=False, action="store_true")
     parser.add_argument("--vec_dim", type=int, default=100)
     parser.add_argument("--embed_fn", type=str, default=None)
