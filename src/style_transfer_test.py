@@ -85,7 +85,7 @@ def main(_):
 
     dump_folder = "../dump/" + str(FLAGS.data_type) + "/"
     #output_path = dump_folder + FLAGS.output_path
-    output_path = FLAGS.output_path
+    output_path = FLAGS.output_path +"outputs.txt"
     log_path = output_path + "logs.txt"
     f = open(output_path, "w")
     g = open(log_path, "w")
