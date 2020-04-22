@@ -84,8 +84,9 @@ def main(_):
     print("test size: {}".format(len(test_orig_sents)))
 
     dump_folder = "../dump/" + str(FLAGS.data_type) + "/"
-    output_path = dump_folder + FLAGS.output_path
-    log_path = dump_folder + "logs.txt"
+    #output_path = dump_folder + FLAGS.output_path
+    output_path = FLAGS.output_path
+    log_path = output_path + "logs.txt"
     f = open(output_path, "w")
     g = open(log_path, "w")
     ind = 0
