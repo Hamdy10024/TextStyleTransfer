@@ -7,6 +7,7 @@ import tensorflow as tf
 import random
 from collections import OrderedDict
 from sklearn.metrics import roc_curve, auc
+from nltk.translate.bleu_score import sentence_bleu
 import data_helpers
 from generator import Generator
 from rnnlm import RNNLM
@@ -90,6 +91,7 @@ def main(_):
     f = open(output_path, "w")
     g = open(log_path, "w")
     ind = 0
+    total_bleu = 0
     while (ind < len(test_orig_sents)):
         input_sents = test_orig_sents[ind:ind+FLAGS.batch_size]
         input_len = test_orig_len[ind:ind+FLAGS.batch_size]
@@ -107,6 +109,7 @@ def main(_):
         tsf_words = data_helpers.convertIdxToWords(generator_outputs, tsf_vocab_inv)
         tmp_ind = ind
         ind += FLAGS.batch_size
+        batch_bleu = 0
         for (orig_word_seq, tsf_word_seq) in zip(orig_words, tsf_words):
             if (tmp_ind >= len(test_orig_sents)):
                 break
@@ -115,8 +118,13 @@ def main(_):
             # log
             g.write("orig:\t"+" ".join(orig_word_seq)+"\n")
             g.write("tsf:\t"+" ".join(tsf_word_seq)+"\n")
+            score = sentence_bleu(orig_word_seq, tsf_word_seq)
+            batch_bleu +=1
             g.write("\n")
             tmp_ind += 1
+        print("bleu score is {}".format(batch_bleu/FLAGS.batch_size))
+        total_bleu += batch_bleu
+    print("total bleu score is {}".format(total_bleu/len(test_orig_sents)))
     f.close()
     g.close()
     print("done saving tsf sents to", output_path)
