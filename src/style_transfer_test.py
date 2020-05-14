@@ -119,7 +119,7 @@ def main(_):
             g.write("orig:\t"+" ".join(orig_word_seq)+"\n")
             g.write("tsf:\t"+" ".join(tsf_word_seq)+"\n")
             score = sentence_bleu(orig_word_seq, tsf_word_seq)
-            batch_bleu +=1
+            batch_bleu +=score
             g.write("\n")
             tmp_ind += 1
         print("bleu score is {}".format(batch_bleu/FLAGS.batch_size))
