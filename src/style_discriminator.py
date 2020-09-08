@@ -6,6 +6,7 @@ from attention import attention
 import numpy as np
 import params
 
+
 class StyleDiscriminator(object):
     def __init__(self, num_classes, embedding_size, init_embed, hidden_size, \
                  attention_size, max_sent_len, keep_prob):
@@ -45,6 +46,7 @@ class StyleDiscriminator(object):
         sd_optimizer = tf.train.AdamOptimizer(1e-4)
         grads_and_vars = sd_optimizer.compute_gradients(self.loss, self.params, aggregation_method=2)
         self.train_op = sd_optimizer.apply_gradients(grads_and_vars)
+
 
     def getStyleReward(self, sess, sents, sents_len):
         feed = {self.input_x: sents, self.sequence_length: sents_len}

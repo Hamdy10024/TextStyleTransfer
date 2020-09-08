@@ -13,8 +13,8 @@ class ROLLOUT(object):
         self.tsf_vocab_inv = tsf_vocab_inv
         self.gamma = 0.95
 
-    def get_sent_reward(self,  sess, batch_size, orig_words, tsf_dec_sents, tsf_sent_len, \
-                        rnnlm, style_discriminator, semantic_discriminator, verbose=False):
+    def get_sent_reward(self,  sess, batch_size, orig_words, tsf_dec_sents, tsf_sent_len, target_sents, target_lens, \
+                        rnnlm, style_discriminator, semantic_discriminator, siamese_discriminator,verbose=False):
         sent_size = len(orig_words)
         # tsf_sents -> raw_tsf_words (with <EOS>)
         raw_tsf_words = [[self.tsf_vocab_inv[ind] for ind in dec_sent] for dec_sent in tsf_dec_sents]
@@ -25,6 +25,7 @@ class ROLLOUT(object):
         
         # evaluation       
         style_rewards = []
+        siamese_rewards = []
         lm_rewards = []
         semantic_rewards = []
         start_ind = 0
@@ -36,16 +37,20 @@ class ROLLOUT(object):
             batch_tsf_len = tsf_sent_len[start_ind:end_ind]
             if (end_ind > sent_size):
                 batch_tsf_enc_sents = batch_tsf_enc_sents + tsf_enc_sents[start_ind:start_ind+1] * (end_ind-sent_size)
-                batch_tsf_len = batch_tsf_len + tsf_tsf_len[start_ind:start_ind+1]*(end_ind-sent_size)
+                batch_tsf_len = batch_tsf_len + tsf_sent_len[start_ind:start_ind+1]*(end_ind-sent_size)
             batch_style_rewards = style_discriminator.getStyleReward(sess, batch_tsf_enc_sents, batch_tsf_len)
+            batch_siamese_rewards = siamese_discriminator.getSiameseReward(sess, batch_tsf_enc_sents, batch_tsf_len,target_sents, target_lens)
             batch_lm_rewards = rnnlm.getLMReward(sess, batch_tsf_enc_sents)
             batch_semantic_rewards = semantic_discriminator.getSemanticReward(batch_orig_words, batch_tsf_words)
             if (end_ind > sent_size):
                 batch_style_rewards = batch_style_rewards[:sent_size-start_ind]
                 batch_lm_rewards = batch_lm_rewards[:sent_size-start_ind]
+                batch_siamese_rewards = batch_siamese_rewards[:sent_size-start_ind]
             style_rewards = style_rewards + list(np.reshape(batch_style_rewards, (-1,)))
             lm_rewards = lm_rewards + list(np.reshape(batch_lm_rewards, (-1,)))
             semantic_rewards = semantic_rewards + list(batch_semantic_rewards)
+            
+            siamese_rewards = siamese_rewards + list(np.reshape(batch_siamese_rewards, (-1,)))
             start_ind += batch_size
         if (verbose):
             print("No-rolling reward: test_size: {}, style_rewards size: {}, lm_rewards size: {}, semantic_rewards size: {}".format(sent_size, \
@@ -55,15 +60,19 @@ class ROLLOUT(object):
         mean_style_reward = np.mean(style_rewards)
         mean_sem_reward = np.mean(semantic_rewards)
         mean_lm_reward = np.mean(lm_rewards)
+        mean_siamese_reward = np.mean(siamese_rewards)
+        
         weighted_reward = style_weight * mean_style_reward + semantic_weight * mean_sem_reward + \
-                           lm_weight * mean_lm_reward
-        return mean_style_reward, mean_sem_reward, mean_lm_reward, weighted_reward
+                           lm_weight * mean_lm_reward + siamese_weight * mean_siamese_reward
+        return mean_style_reward, mean_sem_reward, mean_lm_reward,mean_siamese_reward , weighted_reward
         
 
-    def get_reward(self, sess, generator, encoder_inputs, encoder_input_words, encoder_inputs_length, \
-                   decoder_inputs, rnnlm, style_discriminator, semantic_discriminator, max_sent_len, rollout_num=8, verbose=False):
+    def get_reward(self, sess, generator, encoder_inputs, encoder_input_words, encoder_inputs_length, target_inputs, target_input_len,
+                   decoder_inputs, rnnlm, style_discriminator, siamese_discriminator,semantic_discriminator, max_sent_len, rollout_num=8, verbose=False):
         # style rewards: max_sent_len, batch_size
         style_rewards = []
+        #siamese rewards: max_sent_len, batch_size
+        siamese_rewards = []
         # semantic rewards: max_sent_len, batch_size
         semantic_rewards = []
         # language model rewards: max_sent_len, batch_size
@@ -85,6 +94,9 @@ class ROLLOUT(object):
                 # style discriminator: batch_size, 1
                 rollout_outputs_len = [max_sent_len] * len(rollout_decoder_outputs)
                 style_reward = style_discriminator.getStyleReward(sess, rollout_encoder_outputs, rollout_outputs_len)
+                
+                siamese_reward = siamese_discriminator.getSiameseReward(sess, rollout_encoder_outputs, rollout_outputs_len, target_inputs,target_input_len)
+                
                 # semantic reward: batch_size, 1
                 semantic_reward = semantic_discriminator.getSemanticReward(encoder_input_words, rollout_words)
                 # lm reward:
@@ -94,10 +106,12 @@ class ROLLOUT(object):
                     style_rewards.append(np.copy(style_reward))
                     semantic_rewards.append(np.copy(semantic_reward))
                     lm_rewards.append(np.copy(lm_reward))
+                    siamese_rewards.append(np.copy(siamese_reward))
                 else:
                     style_rewards[given_time - 1] += style_reward
                     semantic_rewards[given_time - 1] += semantic_reward
                     lm_rewards[given_time - 1] += lm_reward
+                    siamese_rewards[given_time - 1] += siamese_reward
                     
             # reward of the last token, no need to rollout
             decoder_inputs_len = [len(sent) for sent in decoder_inputs]
@@ -106,26 +120,32 @@ class ROLLOUT(object):
             decoder_enc_inputs = [[self.vocab[word] for word in word_seq] for word_seq in decoder_words]
             style_reward = style_discriminator.getStyleReward(sess, decoder_enc_inputs, decoder_inputs_len)
             semantic_reward = semantic_discriminator.getSemanticReward(encoder_input_words, decoder_words)
+            siamese_reward = siamese_discriminator.getSiameseReward(sess, decoder_enc_inputs, decoder_inputs_len,target_inputs,target_input_len )
             lm_reward = rnnlm.getLMReward(sess, decoder_enc_inputs)
             if (i==0):
                 style_rewards.append(np.copy(style_reward))
                 semantic_rewards.append(np.copy(semantic_reward))
                 lm_rewards.append(np.copy(lm_reward))
+                siamese_rewards.append(np.copy(siamese_reward))
             else:
+                
                 style_rewards[max_sent_len - 1] += style_reward
                 semantic_rewards[max_sent_len - 1] += semantic_reward
                 lm_rewards[max_sent_len - 1] += lm_reward
+                siamese_rewards[max_sent_len - 1]+= siamese_reward
         # style rewards: batch_size, max_sent_len
         style_rewards = np.transpose(style_rewards) / float(rollout_num)
         # semantic rewards: batch_size, max_sent_len
         semantic_rewards = np.transpose(semantic_rewards) / float(rollout_num)
         # lm rewards: batch_size, max_sent_len
         lm_rewards = np.transpose(lm_rewards) / float(rollout_num)
+        
+        siamese_rewards = np.transpose(siamese_rewards) / float(rollout_num)
         if verbose:
             print("style: {}, semantic: {}, lm: {}".format(np.mean(style_rewards), np.mean(semantic_rewards), np.mean(lm_rewards)))
         # weighted_rewards: batch_size, max_sent_len
         weighted_rewards = style_weight *  style_rewards + semantic_weight * semantic_rewards + \
-                           lm_weight * lm_rewards
+                           lm_weight * lm_rewards + siamese_weight * siamese_rewards
         # rewards - sentence with EOS token: batch_size, max_sent_len
         weighted_rewards = np.concatenate((weighted_rewards,weighted_rewards[:, [-1]]), axis=1)
         

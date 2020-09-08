@@ -9,7 +9,7 @@ import itertools
 
 from collections import OrderedDict
 from sklearn.metrics import roc_curve, auc
-import data_helpers
+import data_helpers_authors as data_helpers
 from generator import Generator
 from rnnlm import RNNLM
 from style_discriminator import StyleDiscriminator
@@ -19,7 +19,7 @@ from rollout import ROLLOUT
 import params
 import pickle
 import sys
-import pretrain
+import auth_pretrain as pretrain
 import os
 
 
@@ -63,7 +63,7 @@ tf.app.flags.DEFINE_integer('batch_size', 32, 'batch size')
 tf.app.flags.DEFINE_integer('pretrain_epochs', 4, 'number of pre-training epoches')
 tf.app.flags.DEFINE_integer('epochs', 2, 'number of training epoches')
 tf.app.flags.DEFINE_integer('rollout_num', 2, 'iterations of sampled rollouts')
-
+tf.app.flags.DEFINE_string('dump_folder', None, 'folder of pickle files')
 
 print("\nParameters:")
 FLAGS = tf.app.flags.FLAGS
@@ -95,11 +95,7 @@ def main(_):
     # load data
     #orig_sents, orig_words, orig_sent_len, tsf_sents, tsf_sent_len = data_helpers.loadTrainInputs(save_folder)
     # load train data
-    orig_sents, orig_words, orig_sent_len, tsf_encoder_sents, tsf_encoder_sent_len, \
-                tsf_decoder_sents, tsf_decoder_sent_len = data_helpers.loadTrainInputs(FLAGS.max_sent_len, save_folder)
-    print("# of train orig_sents: {}".format(len(orig_sents)))
-    print("example train tsf_encoder_sents: {}".format(tsf_encoder_sents[0]))
-    print("example train tsf_decoder_sents: {}".format(tsf_decoder_sents[0]))
+    all_sents, orig_sents, orig_words, orig_sent_len = data_helpers.loadTrainInputs(FLAGS.max_sent_len, save_folder)
     
     # load dev data
     dev_orig_sents, dev_orig_words, dev_orig_sent_len = data_helpers.loadDevInputs(FLAGS.max_sent_len, save_folder)
@@ -122,23 +118,20 @@ def main(_):
         # pretrain rnnlm
         print("pretrain rnnlm...")
         # Better change: tsf_decoder_sents as input -> also change init embed in training RNNLM
-        pretrain.pretrainRNNLM(sess, rnnlm, tsf_encoder_sents, FLAGS.lm_epochs, FLAGS.lm_learning_rate, \
+        pretrain.pretrainRNNLM(sess, rnnlm, all_sents, FLAGS.lm_epochs, FLAGS.lm_learning_rate, \
                       FLAGS.lm_decay_rate, FLAGS.batch_size)
         
         # pretrain discriminator
         print("pretrain discriminator...")
-        pretrain.pretrainStyleDiscriminator(sess, style_discriminator, orig_sents, orig_sent_len, \
-                                   tsf_encoder_sents, tsf_encoder_sent_len, \
+        pretrain.pretrainStyleDiscriminator(sess, style_discriminator, orig_sents, orig_sent_len,\
                                    FLAGS.style_epochs, FLAGS.batch_size)
         
         print("pretrain siamese discriminator...")
         pretrain.pretrainSiameseDiscriminator(sess, siamese_discrim, orig_sents, orig_sent_len, \
-                                   tsf_encoder_sents, tsf_encoder_sent_len, \
                                    FLAGS.style_epochs, FLAGS.batch_size)
         
         print("pretrain generator...")
-        pretrain.pretrainGenerator(sess, generator, tsf_encoder_sents, tsf_encoder_sent_len, \
-                                   tsf_decoder_sents, tsf_decoder_sent_len, \
+        pretrain.pretrainGenerator(sess, generator,\
                                    dev_orig_words, dev_orig_sents, dev_orig_sent_len, \
                                    tsf_vocab_inv, saver, rnnlm, style_discriminator, siamese_discrim,semantic_discriminator, rollout, \
                                    FLAGS.max_sent_len, FLAGS.pretrain_epochs, FLAGS.batch_size, PRETRAINED_MODEL)
@@ -222,7 +215,7 @@ def main(_):
             print("batch_count: {}, style_reward: {}, sem_reward: {}, lm_reward: {}, dev reward: {}, siamese reward {}".format(batch_count, \
                                                                                                             avg_dev_style_reward, avg_dev_sem_reward, \
                                                                                                             avg_dev_lm_reward, avg_dev_reward, avg_dev_siamese_reward))
-            if avg_dev_sem_reward > best_dev_reward:
+            if avg_dev_siamese_reward >= 0.82 and avg_dev_sem_reward > best_dev_reward:
                 best_dev_reward = avg_dev_sem_reward
                 print("best dev sem reward: {}".format(best_dev_reward))
                 checkpoint_prefix = model_folder + "best_model"
@@ -239,16 +232,13 @@ def main(_):
             _ = sess.run(style_discriminator.train_op, feed_dict=feed)
 
         batch_count += 1
-        if(batch_count % 500 == 0):
-            checkpoint_prefix = model_folder + "model"
-            saver.save(sess, checkpoint_prefix)
-
+        
     checkpoint_prefix = model_folder + "model"
     saver.save(sess, checkpoint_prefix)
 
 
 if __name__ == "__main__":
-    save_folder = "../dump/" + FLAGS.data_type + "/"
+    save_folder =  FLAGS.dump_folder 
     embed_fn = save_folder + "tune_vec.txt"
     tf.app.run()
             

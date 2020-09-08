@@ -6,6 +6,8 @@ unk_token = extra_words.index("<UNK>")
 
 
 # weights
-style_weight = 1.0
+style_weight = 1.0 #1.0
+
+siamese_weight = 0.0
 semantic_weight = 0.4 #0.4
 lm_weight = 0.1 #0.8

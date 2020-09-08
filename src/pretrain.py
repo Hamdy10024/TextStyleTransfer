@@ -12,6 +12,7 @@ from generator import Generator
 from rnnlm import RNNLM
 from style_discriminator import StyleDiscriminator
 from semantic_discriminator import SemanticDiscriminator
+from siamese_discriminator import SiameseDiscriminator
 from rollout import ROLLOUT
 import params
 import pickle
@@ -52,14 +53,20 @@ def create_model(sess, save_folder, FLAGS, embed_fn):
                                              init_embed, FLAGS.style_hidden_size, \
                                              FLAGS.style_attention_size, FLAGS.max_sent_len, \
                                              FLAGS.style_keep_prob)
-
+#embedding_size, init_embed, hidden_size, \
+#                 attention_size, max_sent_len, keep_prob):
+    #siamese discriminator 
+    siamese_discrim = SiameseDiscriminator(FLAGS.embedding_dim, \
+                                             init_embed, FLAGS.style_hidden_size, \
+                                             FLAGS.style_attention_size, FLAGS.max_sent_len, \
+                                             FLAGS.style_keep_prob)
     # semantic discriminator
     semantic_discriminator = SemanticDiscriminator(embed_fn)
 
     # rollout
     rollout = ROLLOUT(vocab, tsf_vocab_inv)
     
-    return generator, rnnlm, style_discriminator, semantic_discriminator, rollout, vocab, tsf_vocab_inv
+    return generator, rnnlm, style_discriminator,siamese_discrim,  semantic_discriminator, rollout, vocab, tsf_vocab_inv
 
 
 
@@ -78,7 +85,7 @@ def generatePretrainStyleSamples(orig_sents, orig_sent_len, tsf_sents, tsf_sent_
     shuffled_sent_len = sent_len[shuffled_indices]
     return shuffled_sents, shuffled_labels, shuffled_sent_len
 
-
+    
 def pretrainStyleDiscriminator(sess, style_discriminator, orig_sents, orig_sent_len, tsf_sents, tsf_sent_len, \
                                style_epochs, batch_size):
     input_x, input_y, input_len = generatePretrainStyleSamples(orig_sents, orig_sent_len, tsf_sents, tsf_sent_len)
@@ -100,7 +107,35 @@ def pretrainStyleDiscriminator(sess, style_discriminator, orig_sents, orig_sent_
             print("Pretrain style discriminaotr - batch: {}, roc_auc: {}".format(batch_count, roc_auc))
         batch_count += 1
 
+"""
+pretrain Siamese
+"""
 
+def pretrainSiameseDiscriminator(sess, siamese_discrim, orig_sents, orig_sent_len, tsf_sents, tsf_sent_len, \
+                               style_epochs, batch_size):
+    if len(orig_sents) < len(tsf_sents):
+        orig_sents = orig_sents + orig_sents[: len(tsf_sents) - len(orig_sents)]
+        orig_sent_len = orig_sent_len + orig_sent_len[: len(tsf_sents) - len(orig_sents)]
+    elif len(orig_sents) > len(tsf_sents):
+        tsf_sents = tsf_sents + tsf_sents[:  len(orig_sents) - len(tsf_sents)]
+        tsf_sent_len = tsf_sent_len + tsf_sent_len[:  len(orig_sents) - len(tsf_sents)]
+    assert len(orig_sents) == len(tsf_sents) and len(orig_sents) == len(tsf_sent_len)
+    input_batches =data_helpers.batch_double_iter(orig_sents, tsf_sents,orig_sent_len, tsf_sent_len, batch_size, style_epochs)
+    batch_count = 0
+    for batch_data,batch_lens in input_batches:
+        
+        feed = {siamese_discrim.input_x: batch_data, siamese_discrim.sequence_length: batch_lens}
+        _ = sess.run(siamese_discrim.train_op, feed_dict = feed)
+        if (batch_count % 2000 == 0):
+            feed = {siamese_discrim.input_x: batch_data,  
+                siamese_discrim.sequence_length: batch_lens}
+            scores,acc,inps,sparams = sess.run([tf.reduce_mean(siamese_discrim.loss),siamese_discrim.accuracy, siamese_discrim.input, siamese_discrim.params], feed_dict=feed)
+#            sparams = np.array(sparams)
+            print("pretrain siamese discriminator - batch :{},loss {}, acc {}, inp shape should be (32,3,18) but is {}, param size is {}"
+                  .format(batch_count, scores,acc, inps.shape,len(sparams)))
+         
+            
+        batch_count += 1
 """
 pretrain RNNLM
 """
@@ -146,7 +181,7 @@ def generatePretrainGeneratorSamples(encoder_sents, encoder_sent_len, decoder_se
 
 def pretrainGenerator(sess, generator, tsf_encoder_sents, tsf_encoder_sent_len, tsf_decoder_sents, tsf_decoder_sent_len, \
                       dev_orig_words, dev_orig_sents, dev_orig_sent_len, tsf_vocab_inv, \
-                      saver, rnnlm, style_discriminator, semantic_discriminator, rollout, \
+                      saver, rnnlm, style_discriminator, siamese_disciminator ,semantic_discriminator, rollout, \
                       max_sent_len, epochs, batch_size, model_save_path, verbose=True):
     input_x, input_x_len, input_y, input_y_len = generatePretrainGeneratorSamples(tsf_encoder_sents, tsf_encoder_sent_len, \
                                                                                    tsf_decoder_sents, tsf_decoder_sent_len)
@@ -170,6 +205,7 @@ def pretrainGenerator(sess, generator, tsf_encoder_sents, tsf_encoder_sent_len, 
             dev_style_rewards = []
             dev_sem_rewards = []
             dev_lm_rewards = []
+            dev_siamese_rewards =[]
             for itera in range(int(dev_size/batch_size)):
                 start_ind = itera*batch_size
                 batch_orig_words = dev_orig_words[start_ind:start_ind+batch_size]
@@ -180,25 +216,31 @@ def pretrainGenerator(sess, generator, tsf_encoder_sents, tsf_encoder_sent_len, 
                 # mostly likely one from beam search
                 batch_generator_outputs = np.array(batch_generator_outputs)[:,:,0]
                 batch_generator_outputs, batch_outputs_len = data_helpers.cleanGeneratorOutputs(batch_generator_outputs, max_sent_len)
-                batch_style_reward, batch_sem_reward, batch_lm_reward, batch_reward = \
-                                    rollout.get_sent_reward(sess, batch_size, batch_orig_words, \
+                batch_style_reward, batch_sem_reward, batch_lm_reward,batch_siamese_reward, batch_reward = \
+                                    rollout.get_sent_reward(sess, batch_size, batch_orig_words,\
                                                             batch_generator_outputs, batch_outputs_len, \
-                                                            rnnlm, style_discriminator, semantic_discriminator, False)
+                                                            batch_x, batch_x_len,\
+                                                            rnnlm, style_discriminator, semantic_discriminator,siamese_disciminator,
+                                                            False)
                 # batch_reward: scalar
                 dev_rewards.append(batch_reward)
                 dev_style_rewards.append(batch_style_reward)
                 dev_sem_rewards.append(batch_sem_reward)
                 dev_lm_rewards.append(batch_lm_reward)
+                
+                dev_siamese_rewards.append(batch_siamese_reward)
             avg_dev_reward = np.mean(dev_rewards)
             avg_dev_style_reward = np.mean(dev_style_rewards)
             avg_dev_sem_reward = np.mean(dev_sem_rewards)
             avg_dev_lm_reward = np.mean(dev_lm_rewards)
-            print("dev_size: {}, style_reward: {}, sem_reward: {}, lm_reward: {}, dev reward: {}".format(len(dev_rewards)*batch_size, \
+            avg_siamese_reward = np.mean(dev_siamese_rewards)
+            print("dev_size: {}, style_reward: {}, sem_reward: {}, lm_reward: {},siamese :{}, dev reward: {}".format(len(dev_rewards)*batch_size, \
                                                                                                          avg_dev_style_reward, avg_dev_sem_reward, \
-                                                                                                         avg_dev_lm_reward, avg_dev_reward))
+                                                                                                         avg_dev_lm_reward,avg_siamese_reward,\
+                                                                                                         avg_dev_reward))
                                                                                                          
             # save best model
-            if (avg_dev_style_reward >= 0.7 and avg_dev_sem_reward > best_dev_reward):
+            if (avg_dev_sem_reward > best_dev_reward):
                 best_dev_reward = avg_dev_sem_reward
                 print("best dev reward: {}".format(best_dev_reward))
                 saver.save(sess, model_save_path)               

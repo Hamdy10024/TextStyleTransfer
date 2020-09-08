@@ -69,7 +69,7 @@ def main(_):
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     sess = tf.Session(config=config)
-    generator, rnnlm, style_discriminator, semantic_discriminator, rollout, vocab, tsf_vocab_inv = \
+    generator, rnnlm, style_discriminator, siamese_discriminator,semantic_discriminator, rollout, vocab, tsf_vocab_inv = \
                pretrain.create_model(sess, save_folder, FLAGS, embed_fn)
     saver = tf.train.Saver(tf.all_variables())
 
@@ -92,6 +92,8 @@ def main(_):
     g = open(log_path, "w")
     ind = 0
     total_bleu = 0
+    total_sem = 0
+    total_loss = 0
     while (ind < len(test_orig_sents)):
         input_sents = test_orig_sents[ind:ind+FLAGS.batch_size]
         input_len = test_orig_len[ind:ind+FLAGS.batch_size]
@@ -105,7 +107,10 @@ def main(_):
         beam_generator_outputs = generator.generate(sess, input_sents, input_len)
         # generator_outputs: [batch_size, time]
         generator_outputs = np.array(beam_generator_outputs)[:,:,0]
+        generator_outputs_raw,generator_outputs_len = data_helpers.cleanGeneratorOutputs(generator_outputs, FLAGS.max_sent_len)
         generator_outputs = data_helpers.cleanTexts(generator_outputs, FLAGS.max_sent_len)
+        style_loss = np.sum(style_discriminator.getStyleReward(sess,generator_outputs_raw,generator_outputs_len), axis = 0)
+        lm_loss = np.sum(rnnlm.getLMReward(sess,generator_outputs_raw), axis = 0)
         tsf_words = data_helpers.convertIdxToWords(generator_outputs, tsf_vocab_inv)
         tmp_ind = ind
         ind += FLAGS.batch_size
@@ -124,7 +129,14 @@ def main(_):
             tmp_ind += 1
         print("bleu score is {}".format(batch_bleu/FLAGS.batch_size))
         total_bleu += batch_bleu
+        total_loss += style_loss
+        total_sem += lm_loss
+        
     print("total bleu score is {}".format(total_bleu/len(test_orig_sents)))
+    
+    print("total style score is {}".format(total_loss/len(test_orig_sents)))
+    print("total style score is {}".format(total_sem/len(test_orig_sents)))
+    
     f.close()
     g.close()
     print("done saving tsf sents to", output_path)
