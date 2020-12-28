@@ -1,5 +1,5 @@
-This is implementation for the paper "Reinforcement Learning Based Text Style Transfer without Parallel Training Corpus" accepted by NAACL 2019.
-
+This is an extended implementation for the paper "Reinforcement Learning Based Text Style Transfer without Parallel Training Corpus" accepted by NAACL 2019.
+Contributions to original paper included adding Siamese network to discriminators.
 * Add folder
 Create folder data/, dump/, model/ and pretrained_model/ in the same level of src/
 
